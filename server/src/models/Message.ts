@@ -23,6 +23,8 @@ export interface IMessage extends Document {
     userId: mongoose.Types.ObjectId;
     readAt: Date;
   }[];
+  isEdited?: boolean;
+  editedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -77,6 +79,13 @@ const MessageSchema = new Schema<IMessage>(
         },
       },
     ],
+    isEdited: {
+      type: Boolean,
+      default: false,
+    },
+    editedAt: {
+      type: Date,
+    },
   },
   {
     timestamps: true,

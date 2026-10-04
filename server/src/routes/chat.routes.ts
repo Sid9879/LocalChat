@@ -29,13 +29,14 @@ router.get('/files/:filename', (req, res): void => {
 
 router.use(authMiddleware);
 
-// Get all conversations for current user
+// Get all conversations for current user (excluding conversations hidden for me)
 router.get('/conversations', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const currentUserId = req.user!._id as mongoose.Types.ObjectId;
 
     const conversations = await Conversation.find({
       participants: currentUserId,
+      hiddenFor: { $ne: currentUserId },
     })
       .populate('groupId', 'name description avatarUrl isPrivate')
       .populate('participants', 'username displayName avatarUrl status role')
@@ -45,6 +46,37 @@ router.get('/conversations', async (req: AuthRequest, res: Response): Promise<vo
     res.json(conversations);
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch conversations', error });
+  }
+});
+
+// Remove conversation from current user's screen only (hide for me)
+router.post('/conversations/:id/hide', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const currentUserId = req.user!._id as mongoose.Types.ObjectId;
+
+    const conversation = await Conversation.findById(id);
+    if (!conversation) {
+      res.status(404).json({ message: 'Conversation not found' });
+      return;
+    }
+
+    const isParticipant = conversation.participants.some(
+      (p) => p.toString() === currentUserId.toString()
+    );
+
+    if (!isParticipant && req.user!.role !== 'ADMIN') {
+      res.status(403).json({ message: 'Access denied: You are not part of this conversation' });
+      return;
+    }
+
+    await Conversation.findByIdAndUpdate(id, {
+      $addToSet: { hiddenFor: currentUserId },
+    });
+
+    res.json({ message: 'Conversation removed from screen successfully' });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to remove conversation from screen', error });
   }
 });
 
@@ -86,6 +118,11 @@ router.post('/conversations/dm', async (req: AuthRequest, res: Response): Promis
         lastMessageAt: new Date(),
       });
       await conversation.populate('participants', 'username displayName avatarUrl status role');
+    } else {
+      // Un-hide for current user if it was previously hidden
+      await Conversation.findByIdAndUpdate(conversation._id, {
+        $pull: { hiddenFor: currentUserId },
+      });
     }
 
     res.json(conversation);
@@ -187,6 +224,58 @@ router.post('/upload', upload.single('file'), async (req: AuthRequest, res: Resp
     res.json(fileInfo);
   } catch (error) {
     res.status(500).json({ message: 'File upload failed', error });
+  }
+});
+
+// Edit a text message (like WhatsApp)
+router.patch('/messages/:id', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { content } = req.body;
+    const currentUserId = req.user!._id as mongoose.Types.ObjectId;
+
+    if (!content || !content.trim()) {
+      res.status(400).json({ message: 'Message content cannot be empty' });
+      return;
+    }
+
+    const message = await Message.findById(id);
+    if (!message) {
+      res.status(404).json({ message: 'Message not found' });
+      return;
+    }
+
+    if (message.senderId.toString() !== currentUserId.toString()) {
+      res.status(403).json({ message: 'You can only edit your own messages' });
+      return;
+    }
+
+    if (message.type !== 'TEXT') {
+      res.status(400).json({ message: 'Only text messages can be edited' });
+      return;
+    }
+
+    message.content = content.trim();
+    message.isEdited = true;
+    message.editedAt = new Date();
+    await message.save();
+    await message.populate('senderId', 'username displayName avatarUrl');
+
+    // Update lastMessage on conversation if this was the latest message
+    const conversation = await Conversation.findById(message.conversationId);
+    if (
+      conversation &&
+      conversation.lastMessage &&
+      conversation.lastMessage.createdAt &&
+      new Date(conversation.lastMessage.createdAt).getTime() === new Date(message.createdAt).getTime()
+    ) {
+      conversation.lastMessage.content = message.content;
+      await conversation.save();
+    }
+
+    res.json({ message: 'Message edited successfully', data: message });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to edit message', error });
   }
 });
 

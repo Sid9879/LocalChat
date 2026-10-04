@@ -10,6 +10,7 @@ import {
   LogOut,
   Wifi,
   Lock,
+  X,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -17,6 +18,7 @@ interface SidebarProps {
   groups: Group[];
   activeConversationId: string | null;
   onSelectConversation: (id: string) => void;
+  onHideConversation?: (id: string) => void;
   onOpenNewChat: () => void;
   onOpenAdmin: () => void;
   pendingApprovalsCount: number;
@@ -27,6 +29,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   groups,
   activeConversationId,
   onSelectConversation,
+  onHideConversation,
   onOpenNewChat,
   onOpenAdmin,
   pendingApprovalsCount,
@@ -124,10 +127,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 const isSelected = c._id === activeConversationId;
 
                 return (
-                  <button
+                  <div
                     key={c._id}
                     onClick={() => onSelectConversation(c._id)}
-                    className={`w-full text-left p-2.5 rounded-xl flex items-center gap-3 transition-all cursor-pointer ${
+                    role="button"
+                    tabIndex={0}
+                    className={`group w-full text-left p-2.5 rounded-xl flex items-center gap-3 transition-all cursor-pointer select-none ${
                       isSelected
                         ? 'bg-indigo-600/20 border border-indigo-500/30 text-white'
                         : 'hover:bg-slate-800/60 text-slate-300 border border-transparent'
@@ -154,7 +159,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         {c.lastMessage?.content || 'Start a conversation'}
                       </p>
                     </div>
-                  </button>
+
+                    {/* Remove/Hide from screen button */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (
+                          confirm(
+                            `Remove chat with ${
+                              other?.displayName || other?.username
+                            } from your screen? (This only hides it on your device; it will not delete the chat for the other person).`
+                          )
+                        ) {
+                          onHideConversation?.(c._id);
+                        }
+                      }}
+                      title="Remove chat from my screen"
+                      className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-400 hover:bg-slate-800/90 rounded-lg transition-all"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 );
               })
             )}

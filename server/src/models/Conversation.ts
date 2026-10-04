@@ -13,6 +13,7 @@ export interface IConversation extends Document {
     createdAt: Date;
   };
   lastMessageAt: Date;
+  hiddenFor?: mongoose.Types.ObjectId[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -47,6 +48,12 @@ const ConversationSchema = new Schema<IConversation>(
       default: Date.now,
       index: true,
     },
+    hiddenFor: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
   },
   {
     timestamps: true,

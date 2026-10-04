@@ -117,7 +117,7 @@ export function setupSocketIO(io: SocketIOServer): void {
           await message.populate('replyTo', 'content senderId type');
         }
 
-        // Update conversation lastMessage
+        // Update conversation lastMessage & un-hide if hidden for any participant
         conversation.lastMessage = {
           senderId: user._id as mongoose.Types.ObjectId,
           content: type === 'TEXT' ? content : `[${type}]`,
@@ -125,6 +125,7 @@ export function setupSocketIO(io: SocketIOServer): void {
           createdAt: new Date(),
         };
         conversation.lastMessageAt = new Date();
+        conversation.hiddenFor = [];
         await conversation.save();
 
         // Deliver message
@@ -140,6 +141,71 @@ export function setupSocketIO(io: SocketIOServer): void {
       } catch (err: any) {
         console.error('Error sending message:', err);
         if (callback) callback({ error: err.message || 'Failed to send message' });
+      }
+    });
+
+    // Edit Message (like WhatsApp)
+    socket.on('message:edit', async (data, callback) => {
+      try {
+        const { messageId, content } = data;
+        if (!content || !content.trim()) {
+          if (callback) callback({ error: 'Message content cannot be empty' });
+          return;
+        }
+
+        const message = await Message.findById(messageId);
+        if (!message) {
+          if (callback) callback({ error: 'Message not found' });
+          return;
+        }
+
+        if (message.senderId.toString() !== userId) {
+          if (callback) callback({ error: 'Cannot edit message from another user' });
+          return;
+        }
+
+        if (message.type !== 'TEXT') {
+          if (callback) callback({ error: 'Only text messages can be edited' });
+          return;
+        }
+
+        message.content = content.trim();
+        message.isEdited = true;
+        message.editedAt = new Date();
+        await message.save();
+
+        const conversation = await Conversation.findById(message.conversationId);
+        if (conversation) {
+          if (
+            conversation.lastMessage &&
+            conversation.lastMessage.createdAt &&
+            new Date(conversation.lastMessage.createdAt).getTime() === new Date(message.createdAt).getTime()
+          ) {
+            conversation.lastMessage.content = message.content;
+            await conversation.save();
+          }
+
+          const editPayload = {
+            messageId: message._id.toString(),
+            conversationId: message.conversationId.toString(),
+            content: message.content,
+            isEdited: true,
+            editedAt: message.editedAt,
+          };
+
+          if (conversation.type === 'GROUP' && conversation.groupId) {
+            io.to(`group:${conversation.groupId.toString()}`).emit('message:edited', editPayload);
+          } else {
+            for (const p of conversation.participants) {
+              io.to(`user:${p.toString()}`).emit('message:edited', editPayload);
+            }
+          }
+        }
+
+        if (callback) callback({ success: true, message });
+      } catch (err: any) {
+        console.error('Error editing message:', err);
+        if (callback) callback({ error: err.message || 'Failed to edit message' });
       }
     });
 

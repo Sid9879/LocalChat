@@ -3,6 +3,7 @@ import { authMiddleware, adminMiddleware, AuthRequest } from '../middleware/auth
 import { User } from '../models/User';
 import { Group } from '../models/Group';
 import { GroupMember } from '../models/GroupMember';
+import { Conversation } from '../models/Conversation';
 
 const router = Router();
 
@@ -136,6 +137,39 @@ router.get('/stats', async (_req: AuthRequest, res: Response): Promise<void> => 
     });
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch stats', error });
+  }
+});
+
+// Delete user permanently
+router.delete('/users/:id', async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    if (req.user!._id.toString() === id) {
+      res.status(400).json({ message: 'You cannot delete your own administrator account' });
+      return;
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      res.status(404).json({ message: 'User not found' });
+      return;
+    }
+
+    // Delete user
+    await User.findByIdAndDelete(id);
+
+    // Clean up group memberships
+    await GroupMember.deleteMany({ userId: id });
+
+    // Clean up direct conversations or remove from participants
+    await Conversation.updateMany(
+      { participants: id },
+      { $pull: { participants: id } }
+    );
+
+    res.json({ message: `User ${user.username} deleted permanently` });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to delete user', error });
   }
 });
 

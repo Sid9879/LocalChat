@@ -43,6 +43,7 @@ export interface Conversation {
     createdAt: string;
   };
   lastMessageAt: string;
+  hiddenFor?: string[];
   unreadCount?: number;
 }
 
@@ -69,6 +70,8 @@ export interface Message {
   };
   deliveryStatus: 'SENT' | 'DELIVERED' | 'READ';
   readBy?: { userId: string; readAt: string }[];
+  isEdited?: boolean;
+  editedAt?: string;
   createdAt: string;
 }
 

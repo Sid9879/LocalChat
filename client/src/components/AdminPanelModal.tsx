@@ -10,6 +10,7 @@ import {
   XCircle,
   X,
   AlertCircle,
+  Trash2,
 } from 'lucide-react';
 
 interface AdminPanelModalProps {
@@ -96,6 +97,19 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
       await fetchAdminData();
     } catch (err: any) {
       alert(`Role change failed: ${err.message}`);
+    }
+  };
+
+  const handleDeleteUser = async (userId: string, username: string) => {
+    if (!confirm(`Are you sure you want to permanently delete user @${username}? This action cannot be undone.`)) {
+      return;
+    }
+    try {
+      await apiRequest(`/api/admin/users/${userId}`, { method: 'DELETE' });
+      await fetchAdminData();
+      if (onRefreshData) onRefreshData();
+    } catch (err: any) {
+      alert(`Delete failed: ${err.message}`);
     }
   };
 
@@ -287,6 +301,14 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({
                         Unblock
                       </button>
                     )}
+
+                    <button
+                      onClick={() => handleDeleteUser(u.id || u._id || '', u.username)}
+                      title="Permanently Delete User"
+                      className="p-1.5 bg-rose-500/10 hover:bg-rose-600 text-rose-400 hover:text-white rounded-lg border border-rose-500/20 transition-all cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
               ))}

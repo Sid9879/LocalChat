@@ -15,6 +15,8 @@ import {
   Check,
   CheckCheck,
   Users,
+  Pencil,
+  X,
 } from 'lucide-react';
 
 interface ChatAreaProps {
@@ -35,6 +37,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [typingUser, setTypingUser] = useState<string | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -119,14 +123,34 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       }
     };
 
+    const handleMessageEdited = (edited: {
+      messageId: string;
+      conversationId: string;
+      content: string;
+      isEdited: boolean;
+      editedAt: string;
+    }) => {
+      if (edited.conversationId === conversation._id) {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg._id === edited.messageId
+              ? { ...msg, content: edited.content, isEdited: true, editedAt: edited.editedAt }
+              : msg
+          )
+        );
+      }
+    };
+
     socket.on('message:received', handleMessageReceived);
     socket.on('typing:status', handleTypingStatus);
     socket.on('message:read_receipt', handleReadReceipt);
+    socket.on('message:edited', handleMessageEdited);
 
     return () => {
       socket.off('message:received', handleMessageReceived);
       socket.off('typing:status', handleTypingStatus);
       socket.off('message:read_receipt', handleReadReceipt);
+      socket.off('message:edited', handleMessageEdited);
     };
   }, [socket, conversation._id, user?.id]);
 
@@ -178,6 +202,46 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // Edit Message Handlers (WhatsApp style)
+  const handleStartEdit = (msg: Message) => {
+    setEditingMessageId(msg._id);
+    setEditingText(msg.content);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingMessageId(null);
+    setEditingText('');
+  };
+
+  const handleSaveEdit = async (messageId: string) => {
+    if (!editingText.trim()) return;
+
+    try {
+      await apiRequest(`/api/chat/messages/${messageId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ content: editingText.trim() }),
+      });
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m._id === messageId
+            ? { ...m, content: editingText.trim(), isEdited: true, editedAt: new Date().toISOString() }
+            : m
+        )
+      );
+
+      socket?.emit('message:edit', {
+        messageId,
+        content: editingText.trim(),
+      });
+
+      setEditingMessageId(null);
+      setEditingText('');
+    } catch (err: any) {
+      alert(`Could not edit message: ${err.message}`);
     }
   };
 
@@ -278,9 +342,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             return (
               <div
                 key={msg._id}
-                className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
+                className={`flex flex-col group ${isMe ? 'items-end' : 'items-start'}`}
               >
-                <div className="flex items-center gap-2 mb-1 px-1">
+                <div className="flex items-center gap-1.5 mb-1 px-1">
                   {!isMe && (
                     <span className="text-[11px] font-semibold text-indigo-400">
                       {msg.senderId.displayName || msg.senderId.username}
@@ -292,6 +356,23 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                       minute: '2-digit',
                     })}
                   </span>
+
+                  {(msg.isEdited || msg.editedAt) && (
+                    <span className="text-[10px] text-indigo-300/80 italic font-medium">
+                      (edited)
+                    </span>
+                  )}
+
+                  {/* Edit button for sender's own text messages */}
+                  {isMe && msg.type === 'TEXT' && editingMessageId !== msg._id && (
+                    <button
+                      onClick={() => handleStartEdit(msg)}
+                      title="Edit message (like WhatsApp)"
+                      className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-indigo-300 text-slate-400 transition-all cursor-pointer ml-1"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                  )}
                 </div>
 
                 <div
@@ -301,8 +382,51 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                       : 'bg-slate-800/90 border border-slate-700/60 text-slate-100 rounded-bl-xs'
                   }`}
                 >
-                  {/* Text Content */}
-                  {msg.type === 'TEXT' && <p>{msg.content}</p>}
+                  {/* Text Content or Inline Edit Box */}
+                  {msg.type === 'TEXT' && (
+                    editingMessageId === msg._id ? (
+                      <div className="flex flex-col gap-2 min-w-[220px]">
+                        <input
+                          type="text"
+                          value={editingText}
+                          onChange={(e) => setEditingText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSaveEdit(msg._id);
+                            if (e.key === 'Escape') handleCancelEdit();
+                          }}
+                          autoFocus
+                          className="bg-indigo-700/90 text-white rounded-lg px-2.5 py-1.5 text-sm focus:outline-none border border-indigo-400"
+                        />
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={handleCancelEdit}
+                            className="p-1 rounded bg-indigo-700/60 hover:bg-indigo-700 text-indigo-200 cursor-pointer"
+                            title="Cancel (Esc)"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveEdit(msg._id)}
+                            className="p-1 rounded bg-white text-indigo-700 font-bold hover:bg-indigo-100 cursor-pointer"
+                            title="Save (Enter)"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p>
+                        {msg.content}
+                        {(msg.isEdited || msg.editedAt) && (
+                          <span className="text-[10px] opacity-75 italic ml-1.5 font-normal">
+                            (edited)
+                          </span>
+                        )}
+                      </p>
+                    )
+                  )}
 
                   {/* Image Attachment */}
                   {msg.type === 'IMAGE' && msg.attachment && (

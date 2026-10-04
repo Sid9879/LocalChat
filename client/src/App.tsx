@@ -84,12 +84,43 @@ const MainApp: React.FC = () => {
       });
     };
 
+    const handleMessageEdited = (edited: any) => {
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c._id === edited.conversationId && c.lastMessage) {
+            return {
+              ...c,
+              lastMessage: {
+                ...c.lastMessage,
+                content: edited.content,
+              },
+            };
+          }
+          return c;
+        })
+      );
+    };
+
     socket.on('message:received', handleMessageReceived);
+    socket.on('message:edited', handleMessageEdited);
 
     return () => {
       socket.off('message:received', handleMessageReceived);
+      socket.off('message:edited', handleMessageEdited);
     };
   }, [socket]);
+
+  const handleHideConversation = async (conversationId: string) => {
+    try {
+      await apiRequest(`/api/chat/conversations/${conversationId}/hide`, { method: 'POST' });
+      setConversations((prev) => prev.filter((c) => c._id !== conversationId));
+      if (activeConversationId === conversationId) {
+        setActiveConversationId(null);
+      }
+    } catch (err: any) {
+      alert(`Could not remove chat: ${err.message}`);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -116,6 +147,7 @@ const MainApp: React.FC = () => {
         groups={groups}
         activeConversationId={activeConversationId}
         onSelectConversation={(id) => setActiveConversationId(id)}
+        onHideConversation={handleHideConversation}
         onOpenNewChat={() => setShowNewChat(true)}
         onOpenAdmin={() => setShowAdmin(true)}
         pendingApprovalsCount={pendingApprovalsCount}
