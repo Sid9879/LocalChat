@@ -476,7 +476,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                         </p>
                       </div>
                       <a
-                        href={`${API_BASE_URL}${msg.attachment.url}`}
+                        href={`${API_BASE_URL}${msg.attachment.url}?name=${encodeURIComponent(msg.attachment.originalName)}`}
                         download={msg.attachment.originalName}
                         target="_blank"
                         rel="noreferrer"

@@ -3,7 +3,7 @@ import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { Conversation } from '../models/Conversation';
 import { Message } from '../models/Message';
 import { User } from '../models/User';
-import { upload } from '../middleware/upload';
+import { upload, UPLOAD_DIR } from '../middleware/upload';
 import path from 'path';
 import fs from 'fs';
 import mongoose from 'mongoose';
@@ -13,15 +13,20 @@ const router = Router();
 // Public file serving for images, videos, audio, and attachments
 router.get('/files/:filename', (req, res): void => {
   try {
-    const filename = String(req.params.filename);
-    const filePath = path.join(__dirname, '../../uploads', filename);
+    const filename = path.basename(String(req.params.filename));
+    const filePath = path.join(UPLOAD_DIR, filename);
 
     if (!fs.existsSync(filePath)) {
       res.status(404).json({ message: 'File not found' });
       return;
     }
 
-    res.sendFile(filePath);
+    const downloadName = req.query.name as string | undefined;
+    if (downloadName) {
+      res.download(filePath, downloadName);
+    } else {
+      res.sendFile(filePath);
+    }
   } catch (error) {
     res.status(500).json({ message: 'Failed to retrieve file', error });
   }

@@ -32,7 +32,6 @@ export async function apiRequest<T = any>(
   return data;
 }
 
-// Upload file helper
 export async function uploadFile(file: File): Promise<any> {
   const token = localStorage.getItem('localchat_token');
   const formData = new FormData();
@@ -46,7 +45,17 @@ export async function uploadFile(file: File): Promise<any> {
     body: formData,
   });
 
-  const data = await response.json();
+  const text = await response.text();
+  let data: any;
+  try {
+    data = JSON.parse(text);
+  } catch (_e) {
+    if (!response.ok) {
+      throw new Error(`Upload failed (${response.status}): ${text.slice(0, 100)}`);
+    }
+    throw new Error('Invalid server response format');
+  }
+
   if (!response.ok) {
     throw new Error(data.message || 'File upload failed');
   }

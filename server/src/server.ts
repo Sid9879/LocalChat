@@ -12,6 +12,7 @@ import authRoutes from './routes/auth.routes';
 import adminRoutes from './routes/admin.routes';
 import groupRoutes from './routes/group.routes';
 import chatRoutes from './routes/chat.routes';
+import { UPLOAD_DIR } from './middleware/upload';
 
 dotenv.config();
 
@@ -46,7 +47,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Static uploads directory
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use('/uploads', express.static(UPLOAD_DIR));
 
 // Health check endpoint
 app.get('/api/health', (_req, res) => {
