@@ -117,18 +117,18 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Receive remote audio/video tracks
     pc.ontrack = (event) => {
       soundManager.stopAll();
-      console.log('[WebRTC] Received remote track:', event.track.kind, event.streams);
-      if (event.streams && event.streams[0]) {
-        setRemoteStream(event.streams[0]);
-      } else {
-        setRemoteStream((prevStream) => {
-          if (prevStream) {
-            prevStream.addTrack(event.track);
-            return new MediaStream(prevStream.getTracks());
-          }
+      console.log('[WebRTC] Received remote track:', event.track.kind, event.track.id);
+
+      setRemoteStream((prevStream) => {
+        if (!prevStream) {
           return new MediaStream([event.track]);
-        });
-      }
+        }
+
+        // Never drop audio when a video/screen track arrives (and vice versa)
+        const remainingTracks = prevStream.getTracks().filter((t) => t.kind !== event.track.kind);
+        const newStream = new MediaStream([...remainingTracks, event.track]);
+        return newStream;
+      });
     };
 
     peerConnection.current = pc;
@@ -469,7 +469,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const displayStream = await navigator.mediaDevices.getDisplayMedia({
           video: true,
-          audio: false,
+          audio: true,
         });
 
         const screenTrack = displayStream.getVideoTracks()[0];
