@@ -315,8 +315,20 @@ export function setupSocketIO(io: SocketIOServer): void {
       }
     });
 
+    // Screen Share Notification
+    socket.on('call:screen-share', ({ targetUserId, isSharing }) => {
+      console.log(`[Screen Share] From ${user.username} to ${targetUserId}: isSharing=${isSharing}`);
+      if (targetUserId) {
+        io.to(`user:${targetUserId}`).emit('call:screen-share', {
+          senderId: userId,
+          isSharing,
+        });
+      }
+    });
+
     // WebRTC Offer
     socket.on('webrtc:offer', ({ targetUserId, sdp }) => {
+      console.log(`[WebRTC Offer] From ${user.username} to ${targetUserId}`);
       io.to(`user:${targetUserId}`).emit('webrtc:offer', {
         senderId: userId,
         sdp,
@@ -325,6 +337,7 @@ export function setupSocketIO(io: SocketIOServer): void {
 
     // WebRTC Answer
     socket.on('webrtc:answer', ({ targetUserId, sdp }) => {
+      console.log(`[WebRTC Answer] From ${user.username} to ${targetUserId}`);
       io.to(`user:${targetUserId}`).emit('webrtc:answer', {
         senderId: userId,
         sdp,
@@ -333,6 +346,8 @@ export function setupSocketIO(io: SocketIOServer): void {
 
     // WebRTC ICE Candidate
     socket.on('webrtc:ice', ({ targetUserId, candidate }) => {
+      const candStr = candidate ? (candidate.candidate || JSON.stringify(candidate)).slice(0, 50) : 'null';
+      console.log(`[WebRTC ICE] From ${user.username} to ${targetUserId}: ${candStr}`);
       io.to(`user:${targetUserId}`).emit('webrtc:ice', {
         senderId: userId,
         candidate,
