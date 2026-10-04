@@ -2,15 +2,18 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { useSocket } from './SocketContext';
 import { useAuth } from './AuthContext';
 import { CallSession } from '../types';
+import { soundManager } from '../utils/sound';
 
 interface CallContextType {
   activeCall: CallSession | null;
   incomingCall: CallSession | null;
   localStream: MediaStream | null;
   remoteStream: MediaStream | null;
+  screenStream: MediaStream | null;
   isAudioMuted: boolean;
   isVideoOff: boolean;
   isScreenSharing: boolean;
+  isRemoteScreenSharing: boolean;
   startCall: (targetUserId?: string, isVideo?: boolean, conversationId?: string) => Promise<void>;
   acceptCall: () => Promise<void>;
   rejectCall: () => void;
@@ -39,13 +42,16 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [incomingCall, setIncomingCall] = useState<CallSession | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
 
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [isRemoteScreenSharing, setIsRemoteScreenSharing] = useState(false);
 
   const peerConnection = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
   const pendingCandidates = useRef<RTCIceCandidateInit[]>([]);
   const targetUserRef = useRef<string | null>(null);
 
@@ -110,6 +116,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Receive remote audio/video tracks
     pc.ontrack = (event) => {
+      soundManager.stopAll();
       console.log('[WebRTC] Received remote track:', event.track.kind, event.streams);
       if (event.streams && event.streams[0]) {
         setRemoteStream(event.streams[0]);
@@ -130,6 +137,11 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Cleanup all media streams and peer connection
   const cleanupCall = () => {
+    soundManager.stopAll();
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach((track) => track.stop());
+      screenStreamRef.current = null;
+    }
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
@@ -143,11 +155,13 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     setLocalStream(null);
     setRemoteStream(null);
+    setScreenStream(null);
     setActiveCall(null);
     setIncomingCall(null);
     setIsAudioMuted(false);
     setIsVideoOff(false);
     setIsScreenSharing(false);
+    setIsRemoteScreenSharing(false);
     pendingCandidates.current = [];
     targetUserRef.current = null;
   };
@@ -159,13 +173,25 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Incoming Call
     const handleIncomingCall = (data: CallSession) => {
       console.log('[Signaling] Incoming call received:', data);
+      soundManager.playIncomingRing();
       setIncomingCall(data);
     };
 
     // Call Accepted
-    const handleCallAccepted = async ({ accepterId }: { accepterId: string }) => {
-      console.log('[Signaling] Call was accepted by:', accepterId);
+    const handleCallAccepted = async ({
+      accepterId,
+      accepterName,
+    }: {
+      accepterId: string;
+      accepterName?: string;
+    }) => {
+      console.log('[Signaling] Call was accepted by:', accepterId, accepterName);
+      soundManager.stopAll();
       const pc = getOrCreatePeerConnection(accepterId);
+
+      setActiveCall((prev) =>
+        prev ? { ...prev, callerName: accepterName || prev.callerName } : prev
+      );
 
       // Add local stream tracks to PC
       const stream = localStreamRef.current || localStream;
@@ -257,6 +283,12 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     };
 
+    // Remote Screen Share notification
+    const handleScreenShareNotification = ({ isSharing }: { isSharing: boolean }) => {
+      console.log('[WebRTC] Remote screen share toggled:', isSharing);
+      setIsRemoteScreenSharing(isSharing);
+    };
+
     socket.on('call:incoming', handleIncomingCall);
     socket.on('call:accepted', handleCallAccepted);
     socket.on('call:rejected', handleCallRejected);
@@ -264,6 +296,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     socket.on('webrtc:offer', handleWebRTCOffer);
     socket.on('webrtc:answer', handleWebRTCAnswer);
     socket.on('webrtc:ice', handleWebRTCIce);
+    socket.on('call:screen-share', handleScreenShareNotification);
 
     return () => {
       socket.off('call:incoming', handleIncomingCall);
@@ -273,6 +306,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
       socket.off('webrtc:offer', handleWebRTCOffer);
       socket.off('webrtc:answer', handleWebRTCAnswer);
       socket.off('webrtc:ice', handleWebRTCIce);
+      socket.off('call:screen-share', handleScreenShareNotification);
     };
   }, [socket]);
 
@@ -302,6 +336,8 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         conversationId,
         isVideo,
       });
+
+      soundManager.playOutgoingRing();
     } catch (err) {
       console.error('Camera/Mic permission failed:', err);
       alert('Unable to access camera or microphone. Please ensure permissions are granted and you are on HTTPS.');
@@ -311,6 +347,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Accept incoming call
   const acceptCall = async () => {
     if (!incomingCall) return;
+    soundManager.stopAll();
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -341,6 +378,7 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Reject incoming call
   const rejectCall = () => {
+    soundManager.stopAll();
     if (incomingCall) {
       socket?.emit('call:reject', {
         callerId: incomingCall.callerId,
@@ -385,49 +423,92 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Stop Screen Share
+  const stopScreenSharing = async () => {
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach((track) => track.stop());
+      screenStreamRef.current = null;
+    }
+
+    setScreenStream(null);
+
+    if (peerConnection.current) {
+      const senders = peerConnection.current.getSenders();
+      const videoSender = senders.find((s) => s.track && s.track.kind === 'video');
+      const cameraTrack = localStreamRef.current?.getVideoTracks()[0] || null;
+
+      if (videoSender) {
+        if (cameraTrack) {
+          await videoSender.replaceTrack(cameraTrack);
+        } else {
+          // If was audio-only call
+          try {
+            await videoSender.replaceTrack(null);
+          } catch (e) {
+            console.warn(e);
+          }
+        }
+      }
+    }
+
+    if (targetUserRef.current && socket) {
+      socket.emit('call:screen-share', {
+        targetUserId: targetUserRef.current,
+        isSharing: false,
+      });
+    }
+
+    setIsScreenSharing(false);
+  };
+
   // Toggle Screen Share
   const toggleScreenShare = async () => {
     if (!peerConnection.current) return;
 
     if (!isScreenSharing) {
       try {
-        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-        const screenTrack = screenStream.getVideoTracks()[0];
+        const displayStream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: false,
+        });
+
+        const screenTrack = displayStream.getVideoTracks()[0];
+        screenStreamRef.current = displayStream;
+        setScreenStream(displayStream);
 
         const senders = peerConnection.current.getSenders();
-        const videoSender = senders.find((s) => s.track && s.track.kind === 'video');
+        let videoSender = senders.find((s) => s.track && s.track.kind === 'video');
 
         if (videoSender) {
           await videoSender.replaceTrack(screenTrack);
+        } else {
+          // In audio-only call: add screen track to peer connection and renegotiate
+          peerConnection.current.addTrack(screenTrack, displayStream);
+          const offer = await peerConnection.current.createOffer();
+          await peerConnection.current.setLocalDescription(offer);
+          socket?.emit('webrtc:offer', {
+            targetUserId: targetUserRef.current,
+            sdp: offer,
+          });
         }
 
-        screenTrack.onended = () => {
-          const stream = localStreamRef.current || localStream;
-          if (stream) {
-            const originalVideoTrack = stream.getVideoTracks()[0];
-            if (videoSender && originalVideoTrack) {
-              videoSender.replaceTrack(originalVideoTrack);
-            }
-          }
-          setIsScreenSharing(false);
-        };
+        if (targetUserRef.current && socket) {
+          socket.emit('call:screen-share', {
+            targetUserId: targetUserRef.current,
+            isSharing: true,
+          });
+        }
 
         setIsScreenSharing(true);
+
+        screenTrack.onended = async () => {
+          await stopScreenSharing();
+        };
       } catch (err) {
         console.error('Screen sharing error:', err);
       }
     } else {
-      const stream = localStreamRef.current || localStream;
-      if (stream) {
-        const videoSender = peerConnection.current
-          .getSenders()
-          .find((s) => s.track && s.track.kind === 'video');
-        const originalVideoTrack = stream.getVideoTracks()[0];
-        if (videoSender && originalVideoTrack) {
-          videoSender.replaceTrack(originalVideoTrack);
-        }
-      }
-      setIsScreenSharing(false);
+      await stopScreenSharing();
     }
   };
 
@@ -438,9 +519,11 @@ export const CallProvider: React.FC<{ children: React.ReactNode }> = ({ children
         incomingCall,
         localStream,
         remoteStream,
+        screenStream,
         isAudioMuted,
         isVideoOff,
         isScreenSharing,
+        isRemoteScreenSharing,
         startCall,
         acceptCall,
         rejectCall,
