@@ -7,7 +7,6 @@ import {
   VideoOff,
   PhoneOff,
   Monitor,
-  Maximize2,
   Shield,
 } from 'lucide-react';
 
@@ -27,25 +26,43 @@ export const VideoCallModal: React.FC = () => {
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
   // Attach local stream to local video element
   useEffect(() => {
     if (localVideoRef.current && localStream) {
       localVideoRef.current.srcObject = localStream;
+      localVideoRef.current.play().catch((e) => console.log('Local video play error:', e));
     }
   }, [localStream]);
+
+  // Attach remote stream to dedicated audio element (guarantees sound on both voice & video calls)
+  useEffect(() => {
+    if (remoteAudioRef.current && remoteStream) {
+      remoteAudioRef.current.srcObject = remoteStream;
+      remoteAudioRef.current.play().catch((err) => {
+        console.warn('Remote audio autoplay prevented:', err);
+      });
+    }
+  }, [remoteStream]);
 
   // Attach remote stream to remote video element
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
       remoteVideoRef.current.srcObject = remoteStream;
+      remoteVideoRef.current.play().catch((err) => {
+        console.warn('Remote video autoplay prevented:', err);
+      });
     }
-  }, [remoteStream]);
+  }, [remoteStream, activeCall?.isVideo]);
 
   if (!activeCall) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4">
+      {/* Hidden dedicated audio element to guarantee remote voice playback */}
+      <audio ref={remoteAudioRef} autoPlay playsInline />
+
       <div className="w-full max-w-5xl h-[85vh] bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col relative">
         {/* Top bar info */}
         <div className="absolute top-4 left-6 z-20 flex items-center gap-2 bg-slate-900/60 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-slate-700/50">
@@ -57,33 +74,36 @@ export const VideoCallModal: React.FC = () => {
 
         {/* Video Stage */}
         <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
-          {/* Remote Video Stream */}
-          {remoteStream && !activeCall.isVideo ? (
+          {/* Audio Call UI */}
+          {!activeCall.isVideo ? (
             <div className="flex flex-col items-center justify-center text-center">
               <div className="w-24 h-24 rounded-full bg-indigo-600/30 border-2 border-indigo-500/50 flex items-center justify-center text-3xl font-bold text-indigo-300 animate-pulse mb-4">
                 {activeCall.callerName.charAt(0).toUpperCase()}
               </div>
               <h3 className="text-lg font-semibold text-white">{activeCall.callerName}</h3>
-              <p className="text-xs text-emerald-400 mt-1">Audio Connected</p>
+              <p className="text-xs text-emerald-400 mt-1">
+                {remoteStream ? 'Audio Connected' : 'Connecting Audio...'}
+              </p>
             </div>
           ) : (
-            <video
-              ref={remoteVideoRef}
-              autoPlay
-              playsInline
-              className="w-full h-full object-cover"
-            />
-          )}
-
-          {/* If waiting for peer */}
-          {!remoteStream && (
-            <div className="flex flex-col items-center justify-center text-center">
-              <div className="w-20 h-20 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-2xl font-bold text-slate-400 animate-bounce mb-3">
-                {activeCall.callerName.charAt(0).toUpperCase()}
-              </div>
-              <h3 className="text-base font-semibold text-white">Calling {activeCall.callerName}...</h3>
-              <p className="text-xs text-slate-400 mt-1">Establishing peer-to-peer connection</p>
-            </div>
+            /* Video Call UI */
+            <>
+              <video
+                ref={remoteVideoRef}
+                autoPlay
+                playsInline
+                className={`w-full h-full object-cover ${!remoteStream ? 'hidden' : ''}`}
+              />
+              {!remoteStream && (
+                <div className="flex flex-col items-center justify-center text-center">
+                  <div className="w-20 h-20 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-2xl font-bold text-slate-400 animate-bounce mb-3">
+                    {activeCall.callerName.charAt(0).toUpperCase()}
+                  </div>
+                  <h3 className="text-base font-semibold text-white">Calling {activeCall.callerName}...</h3>
+                  <p className="text-xs text-slate-400 mt-1">Establishing peer-to-peer connection</p>
+                </div>
+              )}
+            </>
           )}
 
           {/* Local Video Picture-in-Picture */}
@@ -152,10 +172,10 @@ export const VideoCallModal: React.FC = () => {
             <Monitor className="w-5 h-5" />
           </button>
 
-          {/* End Call */}
+          {/* End Call Button */}
           <button
             onClick={endCall}
-            className="p-3.5 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-600/30 transition-all cursor-pointer ml-2"
+            className="p-3.5 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white transition-all shadow-lg shadow-rose-600/30 cursor-pointer"
             title="End Call"
           >
             <PhoneOff className="w-5 h-5" />
