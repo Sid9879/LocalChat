@@ -9,13 +9,18 @@ export interface AuthRequest extends Request {
 
 export async function authMiddleware(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
+    let token = '';
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.split(' ')[1];
+    } else if (req.query && req.query.token) {
+      token = String(req.query.token);
+    }
+
+    if (!token) {
       res.status(401).json({ message: 'Authorization token required' });
       return;
     }
-
-    const token = authHeader.split(' ')[1];
     const payload = verifyToken(token);
     if (!payload) {
       res.status(401).json({ message: 'Invalid or expired token' });

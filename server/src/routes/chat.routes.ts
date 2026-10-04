@@ -9,6 +9,24 @@ import fs from 'fs';
 import mongoose from 'mongoose';
 
 const router = Router();
+
+// Public file serving for images, videos, audio, and attachments
+router.get('/files/:filename', (req, res): void => {
+  try {
+    const filename = String(req.params.filename);
+    const filePath = path.join(__dirname, '../../uploads', filename);
+
+    if (!fs.existsSync(filePath)) {
+      res.status(404).json({ message: 'File not found' });
+      return;
+    }
+
+    res.sendFile(filePath);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to retrieve file', error });
+  }
+});
+
 router.use(authMiddleware);
 
 // Get all conversations for current user
@@ -169,23 +187,6 @@ router.post('/upload', upload.single('file'), async (req: AuthRequest, res: Resp
     res.json(fileInfo);
   } catch (error) {
     res.status(500).json({ message: 'File upload failed', error });
-  }
-});
-
-// Download/View file
-router.get('/files/:filename', (req: AuthRequest, res: Response): void => {
-  try {
-    const filename = String(req.params.filename);
-    const filePath = path.join(__dirname, '../../uploads', filename);
-
-    if (!fs.existsSync(filePath)) {
-      res.status(404).json({ message: 'File not found' });
-      return;
-    }
-
-    res.sendFile(filePath);
-  } catch (error) {
-    res.status(500).json({ message: 'Failed to retrieve file', error });
   }
 });
 
